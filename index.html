@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ProteinLens — Crystallographic Quality Predictor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  /* ── Reset & tokens ──────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0b0e13;
+    --surface:   #111520;
+    --border:    rgba(255,255,255,0.07);
+    --muted:     #3a4055;
+    --text:      #d4daf0;
+    --dim:       #7680a0;
+    --good:      #2dd4a0;
+    --medium:    #f5a623;
+    --bad:       #e84f4f;
+    --accent:    #5b7fff;
+    --mono:      "DM Mono", monospace;
+    --serif:     "Instrument Serif", serif;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grain overlay ───────────────────────────────────────────────────── */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+  }
+
+  /* ── Layout ──────────────────────────────────────────────────────────── */
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Header ──────────────────────────────────────────────────────────── */
+  header {
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+
+  .logo-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .logo-line span.tag {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 2px 7px;
+    border-radius: 2px;
+    opacity: 0.8;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 400;
+    color: #eef1ff;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  header p {
+    margin-top: 12px;
+    color: var(--dim);
+    font-size: 13px;
+    max-width: 480px;
+  }
+
+  /* ── Input card ──────────────────────────────────────────────────────── */
+  .input-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 28px 24px;
+    margin-bottom: 36px;
+  }
+
+  .input-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  input[type="text"] {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--muted);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 12px 16px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input[type="text"]::placeholder { color: var(--muted); font-size: 16px; letter-spacing: 0.08em; }
+  input[type="text"]:focus { border-color: var(--accent); }
+
+  button#analyze-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 12px 22px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+
+  button#analyze-btn:hover  { opacity: 0.85; }
+  button#analyze-btn:active { transform: scale(0.97); }
+  button#analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .hint {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .hint a {
+    color: var(--dim);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ── Status / error ──────────────────────────────────────────────────── */
+  #status {
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 10px;
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid var(--muted);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-msg { color: var(--bad); }
+
+  /* ── Results ─────────────────────────────────────────────────────────── */
+  #results {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    pointer-events: none;
+  }
+
+  #results.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  /* verdict row */
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 24px;
+  }
+
+  .verdict-badge {
+    font-family: var(--serif);
+    font-size: 2.2rem;
+    font-style: italic;
+    min-width: 100px;
+    text-align: center;
+    padding: 10px 18px;
+    border-radius: 6px;
+    line-height: 1;
+  }
+
+  .verdict-badge.good   { color: var(--good);   background: rgba(45,212,160,0.08);  border: 1px solid rgba(45,212,160,0.25); }
+  .verdict-badge.medium { color: var(--medium); background: rgba(245,166,35,0.08);  border: 1px solid rgba(245,166,35,0.25); }
+  .verdict-badge.bad    { color: var(--bad);    background: rgba(232,79,79,0.08);   border: 1px solid rgba(232,79,79,0.25); }
+
+  .verdict-meta { flex: 1; }
+  .verdict-meta .pdb-label { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .verdict-meta .pdb-id    { font-size: 1.4rem; font-weight: 500; color: #eef1ff; letter-spacing: 0.1em; }
+  .verdict-meta .confidence { margin-top: 4px; font-size: 12px; color: var(--dim); }
+
+  /* two-col grid */
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 580px) { .panels { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 16px;
+  }
+
+  /* probability bars */
+  .prob-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .prob-row:last-child { margin-bottom: 0; }
+
+  .prob-label {
+    width: 54px;
+    text-transform: capitalize;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .prob-bar-wrap {
+    flex: 1;
+    background: var(--bg);
+    border-radius: 3px;
+    height: 6px;
+    overflow: hidden;
+  }
+
+  .prob-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+    width: 0;
+  }
+
+  .prob-bar.good   { background: var(--good); }
+  .prob-bar.medium { background: var(--medium); }
+  .prob-bar.bad    { background: var(--bad); }
+
+  .prob-val {
+    width: 38px;
+    text-align: right;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  /* feature table */
+  .feature-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .feature-row:last-child { border-bottom: none; }
+  .feature-name { color: var(--dim); }
+  .feature-val  { color: var(--text); font-weight: 500; }
+
+  /* chart panel */
+  .chart-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px 16px;
+    margin-bottom: 24px;
+  }
+
+  .chart-panel canvas { max-height: 220px; }
+
+  /* history */
+  #history-section { margin-top: 40px; }
+
+  .section-title {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+
+  .history-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .history-chip:hover { border-color: var(--accent); }
+
+  .history-chip .hc-id    { font-size: 14px; font-weight: 500; letter-spacing: 0.1em; }
+  .history-chip .hc-label { font-size: 11px; text-transform: capitalize; }
+  .history-chip .hc-label.good   { color: var(--good); }
+  .history-chip .hc-label.medium { color: var(--medium); }
+  .history-chip .hc-label.bad    { color: var(--bad); }
+
+  /* empty history */
+  .empty-history {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="logo-line">
+      <span class="tag">ML · Structural Biology</span>
+    </div>
+    <h1>Protein<em>Lens</em></h1>
+    <p>Enter a PDB ID to predict crystallographic quality and inspect structural features extracted from the deposited mmCIF file.</p>
+  </header>
+
+  <!-- Input card -->
+  <div class="input-card">
+    <label class="input-label" for="pdb-input">PDB Identifier</label>
+    <div class="input-row">
+      <input type="text" id="pdb-input" placeholder="e.g. 1TIM" maxlength="4" autocomplete="off" spellcheck="false" />
+      <button id="analyze-btn" onclick="analyze()">Analyze →</button>
+    </div>
+    <div id="status"><div class="spinner" id="spinner"></div><span id="status-text"></span></div>
+    <p class="hint">Find structures at <a href="https://www.rcsb.org" target="_blank">rcsb.org</a>. The model was trained on ~120 curated ribosomal &amp; enzyme structures.</p>
+  </div>
+
+  <!-- Results (hidden until fetch) -->
+  <div id="results">
+
+    <!-- Verdict -->
+    <div class="verdict">
+      <div class="verdict-badge" id="verdict-badge">—</div>
+      <div class="verdict-meta">
+        <div class="pdb-label">Structure</div>
+        <div class="pdb-id" id="verdict-pdb">—</div>
+        <div class="confidence" id="verdict-conf">—</div>
+      </div>
+    </div>
+
+    <!-- Probabilities + Features -->
+    <div class="panels">
+
+      <div class="panel">
+        <div class="panel-title">Class probabilities</div>
+        <div id="prob-bars"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Extracted features</div>
+        <div id="feature-table"></div>
+      </div>
+
+    </div>
+
+    <!-- Radar chart -->
+    <div class="chart-panel">
+      <div class="panel-title">Feature profile (normalised)</div>
+      <canvas id="radar-chart"></canvas>
+    </div>
+
+  </div><!-- /results -->
+
+  <!-- History -->
+  <div id="history-section">
+    <div class="section-title">Recent lookups</div>
+    <div id="history-grid" class="history-grid">
+      <span class="empty-history">No proteins analysed yet.</span>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const API = "http://127.0.0.1:5000";
+let radarChart = null;
+const history = [];
+
+// Feature display names & rough normalisation ranges (for radar)
+const FEATURES = [
+  { key: "mean_bfactor",     label: "Mean B-factor",    min: 0,   max: 120 },
+  { key: "bfactor_std",      label: "B-factor Std",     min: 0,   max: 80  },
+  { key: "hydro_ratio",      label: "Hydrophobic %",    min: 0,   max: 0.6 },
+  { key: "charged_ratio",    label: "Charged %",        min: 0,   max: 0.4 },
+  { key: "avg_chain_length", label: "Chain Length",     min: 0,   max: 1500},
+];
+
+const COLOR = { good: "#2dd4a0", medium: "#f5a623", bad: "#e84f4f" };
+
+// ── Keyboard shortcut ──────────────────────────────────────────────────────
+document.getElementById("pdb-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") analyze();
+});
+
+// ── Main ───────────────────────────────────────────────────────────────────
+async function analyze() {
+  const raw = document.getElementById("pdb-input").value.trim().toUpperCase();
+  if (raw.length !== 4) { setStatus("Please enter a 4-character PDB ID.", true); return; }
+
+  setLoading(true);
+  setStatus("Fetching structure from RCSB…");
+
+  try {
+    const res  = await fetch(`${API}/predict`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ pdb_id: raw }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) { setStatus(data.error || "Something went wrong.", true); setLoading(false); return; }
+
+    renderResults(data);
+    pushHistory(data);
+    setStatus("");
+  } catch (err) {
+    setStatus("Could not reach the backend. Is Flask running on port 5000?", true);
+  }
+
+  setLoading(false);
+}
+
+// ── Render results ─────────────────────────────────────────────────────────
+function renderResults(d) {
+  const el = id => document.getElementById(id);
+
+  // Verdict
+  const badge = el("verdict-badge");
+  badge.textContent = d.label;
+  badge.className   = `verdict-badge ${d.label}`;
+  el("verdict-pdb").textContent  = d.pdb_id;
+  el("verdict-conf").textContent = `${(d.confidence * 100).toFixed(1)}% confidence`;
+
+  // Probability bars
+  const order = ["good","medium","bad"];
+  el("prob-bars").innerHTML = order.map(cls => {
+    const p   = d.probabilities[cls] ?? 0;
+    const pct = (p * 100).toFixed(1);
+    return `
+      <div class="prob-row">
+        <span class="prob-label">${cls}</span>
+        <div class="prob-bar-wrap">
+          <div class="prob-bar ${cls}" style="width:0%" data-target="${p*100}%"></div>
+        </div>
+        <span class="prob-val">${pct}%</span>
+      </div>`;
+  }).join("");
+
+  // Animate bars after paint
+  requestAnimationFrame(() =>
+    document.querySelectorAll(".prob-bar").forEach(b =>
+      b.style.width = b.dataset.target
+    )
+  );
+
+  // Feature table
+  el("feature-table").innerHTML = FEATURES.map(f => `
+    <div class="feature-row">
+      <span class="feature-name">${f.label}</span>
+      <span class="feature-val">${fmtVal(f.key, d.features[f.key])}</span>
+    </div>`).join("");
+
+  // Radar
+  buildRadar(d.features, d.label);
+
+  // Show
+  const res = document.getElementById("results");
+  res.classList.add("visible");
+  res.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function fmtVal(key, val) {
+  if (val === undefined || val === null) return "—";
+  if (key === "hydro_ratio" || key === "charged_ratio") return (val * 100).toFixed(1) + "%";
+  if (key === "avg_chain_length") return Math.round(val) + " res";
+  return val.toFixed(2);
+}
+
+// ── Radar chart ────────────────────────────────────────────────────────────
+function buildRadar(features, label) {
+  const normalised = FEATURES.map(f => {
+    const v = features[f.key] ?? 0;
+    return Math.min(1, Math.max(0, (v - f.min) / (f.max - f.min)));
+  });
+
+  const col  = COLOR[label] || "#5b7fff";
+  const ctx  = document.getElementById("radar-chart").getContext("2d");
+
+  if (radarChart) radarChart.destroy();
+
+  radarChart = new Chart(ctx, {
+    type: "radar",
+    data: {
+      labels: FEATURES.map(f => f.label),
+      datasets: [{
+        label:           "Feature profile",
+        data:            normalised,
+        backgroundColor: col + "22",
+        borderColor:     col,
+        pointBackgroundColor: col,
+        pointRadius:     4,
+        borderWidth:     2,
+      }],
+    },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        r: {
+          min: 0, max: 1,
+          ticks: { display: false },
+          grid:        { color: "rgba(255,255,255,0.07)" },
+          angleLines:  { color: "rgba(255,255,255,0.07)" },
+          pointLabels: { color: "#7680a0", font: { family: "'DM Mono'", size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+function pushHistory(d) {
+  if (history.find(h => h.pdb_id === d.pdb_id)) return;
+  history.unshift(d);
+  if (history.length > 12) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const grid = document.getElementById("history-grid");
+  if (!history.length) {
+    grid.innerHTML = '<span class="empty-history">No proteins analysed yet.</span>';
+    return;
+  }
+  grid.innerHTML = history.map(h => `
+    <div class="history-chip" onclick="loadHistory('${h.pdb_id}')">
+      <span class="hc-id">${h.pdb_id}</span>
+      <span class="hc-label ${h.label}">${h.label}</span>
+    </div>`).join("");
+}
+
+function loadHistory(pdb_id) {
+  const d = history.find(h => h.pdb_id === pdb_id);
+  if (d) { renderResults(d); }
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────
+function setLoading(on) {
+  document.getElementById("analyze-btn").disabled = on;
+  document.getElementById("spinner").style.display = on ? "block" : "none";
+}
+
+function setStatus(msg, isError = false) {
+  const el = document.getElementById("status-text");
+  el.textContent  = msg;
+  el.className    = isError ? "error-msg" : "";
+}
+</script>
+</body>
+</html>
