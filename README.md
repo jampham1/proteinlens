@@ -171,7 +171,7 @@ Example response:
 
 `mean_bfactor` and `bfactor_std` consistently rank as the two most predictive features, which aligns with domain knowledge: elevated and variable B-factors are the clearest structural signal of a poorly-resolved model.
 
-![Model results](./data/model_results.png)
+![Model results](screenshots/model_results.png)
 
 ---
 
