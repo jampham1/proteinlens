@@ -1,0 +1,35 @@
+# ── Downloaded structure files ─────────────────────────────────────────────────
+pdb_files/*.cif
+
+# ── Extracted & labeled data ───────────────────────────────────────────────────
+data/protein_features.csv
+data/protein_features_labeled.csv
+
+# ── Saved models ───────────────────────────────────────────────────────────────
+data/protein_stability_model.pkl
+data/label_encoder.pkl
+
+# ── Output plots ───────────────────────────────────────────────────────────────
+model_results.png
+
+# ── Python ─────────────────────────────────────────────────────────────────────
+proteinlens/__pycache__/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Environments ───────────────────────────────────────────────────────────────
+.env
+.venv/
+venv/
+env/
+
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

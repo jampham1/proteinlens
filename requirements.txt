@@ -1,0 +1,10 @@
+biopython==1.86
+scikit-learn
+imbalanced-learn
+pandas
+numpy
+matplotlib
+flask
+flask-cors==6.0.2
+requests
+joblib
